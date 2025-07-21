@@ -39,12 +39,25 @@ export default function HomeScreen() {
   const qrBoxOpacity = useSharedValue(0);
   const imageOpacity = useSharedValue(0);
   const snapAnimation = useSharedValue(0);
+  const qrBoxScale = useSharedValue(1);
+  const qrBoxX = useSharedValue(0);
+  const qrBoxY = useSharedValue(0);
 
   const qrBoxAnimatedStyle = useAnimatedStyle(() => ({
     opacity: qrBoxOpacity.value,
+    transform: [
+      { scale: qrBoxScale.value },
+      { translateX: qrBoxX.value },
+      { translateY: qrBoxY.value }
+    ],
   }));
   const imageAnimatedStyle = useAnimatedStyle(() => ({
     opacity: imageOpacity.value,
+    transform: [
+      { scale: qrBoxScale.value },
+      { translateX: qrBoxX.value },
+      { translateY: qrBoxY.value }
+    ],
   }));
 
   const fabAnimatedStyle = useAnimatedStyle(() => ({
@@ -79,6 +92,7 @@ export default function HomeScreen() {
       cameraRef.current?.pausePreviewAsync?.();
 
       // Only accept scans whose entire bounds fall within the viewfinder rectangle
+      let qrBounds: any = null;
       if (scanningResult.bounds) {
         const { bounds } = scanningResult;
         let isFullyInside = false;
@@ -92,6 +106,7 @@ export default function HomeScreen() {
             y + height <= viewfinderY + VIEWFINDER_SIZE
           ) {
             isFullyInside = true;
+            qrBounds = { x, y, width, height };
           }
         } else if (Array.isArray(bounds.origin)) {
           const points = bounds.origin;
@@ -101,6 +116,16 @@ export default function HomeScreen() {
             p.y >= viewfinderY &&
             p.y <= viewfinderY + VIEWFINDER_SIZE
           );
+          if (isFullyInside) {
+            const xs = points.map((p: any) => p.x);
+            const ys = points.map((p: any) => p.y);
+            qrBounds = {
+              x: Math.min(...xs),
+              y: Math.min(...ys),
+              width: Math.max(...xs) - Math.min(...xs),
+              height: Math.max(...ys) - Math.min(...ys)
+            };
+          }
         }
         if (!isFullyInside) {
           return; // ignore scans not fully within viewfinder
@@ -123,7 +148,26 @@ export default function HomeScreen() {
       );
 
       bracketColor.value = withTiming('#4CAF50', { duration: 200 });
+
+      // Position QR box at detected QR code location if bounds available
+      if (qrBounds) {
+        const centerX = screenWidth / 2;
+        const centerY = screenHeight / 2;
+        const qrCenterX = qrBounds.x + qrBounds.width / 2;
+        const qrCenterY = qrBounds.y + qrBounds.height / 2;
+        
+        // Calculate initial position offset from screen center
+        qrBoxX.value = qrCenterX - centerX;
+        qrBoxY.value = qrCenterY - centerY;
+        qrBoxScale.value = Math.min(qrBounds.width, qrBounds.height) / 180; // Scale to match detected size
+      }
+
       qrBoxOpacity.value = withTiming(1, { duration: 300 });
+
+      // Animate to center and scale up over 1 second
+      qrBoxX.value = withTiming(0, { duration: 1000 });
+      qrBoxY.value = withTiming(0, { duration: 1000 });
+      qrBoxScale.value = withTiming(1, { duration: 1000 });
 
       // First show QR for 2s, then favicon transition
       timeoutRef.current = setTimeout(() => {
@@ -142,16 +186,19 @@ export default function HomeScreen() {
           // fade in favicon, fade out QR
           imageOpacity.value = withTiming(1, { duration: 500 });
           qrBoxOpacity.value = withTiming(0, { duration: 500 });
-          // after another 2s, open link and resume
-          setTimeout(() => {
-            Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
+          // after another 2s, open link and then resume
+          setTimeout(async () => {
+            await Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
+            // Only reset after URL opens
             cameraRef.current?.resumePreview?.();
-            // reset state
             setScanned(false);
             setScannedData('');
             setPreviewImageUri(null);
             bracketColor.value = withTiming('white', { duration: 200 });
             imageOpacity.value = 0;
+            qrBoxScale.value = 1;
+            qrBoxX.value = 0;
+            qrBoxY.value = 0;
           }, 2000);
         } else {
           // non-URL: resume and reset immediately
@@ -162,11 +209,14 @@ export default function HomeScreen() {
           bracketColor.value = withTiming('white', { duration: 200 });
           qrBoxOpacity.value = withTiming(0, { duration: 300 });
           imageOpacity.value = 0;
+          qrBoxScale.value = 1;
+          qrBoxX.value = 0;
+          qrBoxY.value = 0;
         }
         timeoutRef.current = null;
       }, 2000);
     },
-    [scanned, snapAnimation, bracketColor, qrBoxOpacity]
+    [scanned, snapAnimation, bracketColor, qrBoxOpacity, screenWidth, screenHeight]
   );
 
   // Manual reset removed; scanning will reset automatically after each scan
@@ -213,7 +263,7 @@ export default function HomeScreen() {
         <Animated.View style={[styles.corner, styles.topRight, bracketAnimatedStyle]} />
         <Animated.View style={[styles.corner, styles.bottomLeft, bracketAnimatedStyle]} />
         <Animated.View style={[styles.corner, styles.bottomRight, bracketAnimatedStyle]} />
-        {scanned && scannedData ? (
+                {scanned && scannedData ? (
           <Animated.View style={[styles.qrPreviewBox, qrBoxAnimatedStyle]}>
             <View style={styles.qrCodeBackground}>
               <QRCode value={scannedData} size={180} backgroundColor="transparent" />
@@ -226,7 +276,6 @@ export default function HomeScreen() {
               <AnimatedImage
                 source={{ uri: previewImageUri }}
                 style={{ width: 180, height: 180, borderRadius: 10 }}
-                resizeMode="contain"
               />
             </View>
           </Animated.View>
