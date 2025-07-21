@@ -37,6 +37,7 @@ export default function HomeScreen() {
   const fabScale = useSharedValue(0);
   const guidancePillOpacity = useSharedValue(0);
   const bracketScale = useSharedValue(0.8);
+  const bracketBreathingScale = useSharedValue(1);
   const bracketColor = useSharedValue('white');
   const qrBoxOpacity = useSharedValue(0);
   const imageOpacity = useSharedValue(0);
@@ -64,6 +65,7 @@ export default function HomeScreen() {
     shadowColor: '#000',
     elevation: 8,
   }));
+  
   const imageAnimatedStyle = useAnimatedStyle(() => ({
     opacity: imageOpacity.value,
     transform: [
@@ -90,7 +92,7 @@ export default function HomeScreen() {
   }));
 
   const bracketContainerAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: bracketScale.value }],
+    transform: [{ scale: bracketScale.value * bracketBreathingScale.value }],
   }));
 
   const bracketAnimatedStyle = useAnimatedStyle(() => ({
@@ -105,7 +107,18 @@ export default function HomeScreen() {
     fabScale.value = withSpring(1, { damping: 15, stiffness: 120 });
     guidancePillOpacity.value = withTiming(1, { duration: 500 });
     bracketScale.value = withSpring(1);
-  }, [fabScale, guidancePillOpacity, bracketScale]);
+    
+    // Breathing effect for viewfinder
+    const startBreathing = () => {
+      bracketBreathingScale.value = withSequence(
+        withTiming(1.05, { duration: 2000 }),
+        withTiming(1, { duration: 2000 })
+      );
+      // Repeat breathing effect
+      setTimeout(startBreathing, 4000);
+    };
+    startBreathing();
+  }, [fabScale, guidancePillOpacity, bracketScale, bracketBreathingScale]);
 
   const handleBarcodeScanned = useCallback(
     async (scanningResult: { data: string; bounds?: any; cornerPoints?: any }) => {
@@ -210,17 +223,10 @@ export default function HomeScreen() {
           }
           setPreviewImageUri(faviconUrl);
           
-          // Morph transition to favicon with scale effect
+          // Simple fade transition from QR to favicon
           imageOpacity.value = withTiming(1, { duration: 800 });
           qrBoxOpacity.value = withTiming(0, { duration: 800 });
           
-          // Add subtle scale bounce for morph effect
-          qrBoxScale.value = withSequence(
-            withTiming(1.1, { duration: 200 }),
-            withTiming(0.95, { duration: 200 }),
-            withTiming(1, { duration: 400 })
-          );
-
           // Open URL after showing favicon for 2s
           setTimeout(async () => {
             await Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
@@ -230,7 +236,6 @@ export default function HomeScreen() {
               setScannedData('');
               setPreviewImageUri(null);
               bracketColor.value = withTiming('white', { duration: 200 });
-              imageOpacity.value = 0;
               qrBoxOpacity.value = withTiming(0, { duration: 300 });
               qrBoxScale.value = 1;
               qrBoxX.value = 0;
@@ -308,7 +313,7 @@ export default function HomeScreen() {
         <Animated.View style={[styles.corner, styles.bottomRight, bracketAnimatedStyle]} />
         {scanned && scannedData ? (
           <Animated.View style={[styles.qrPreviewBox, qrBoxAnimatedStyle]}>
-            <View style={styles.qrCodeBackground}>
+            <View style={[styles.qrCodeBackground, { overflow: 'hidden' }]}>
               <QRCode value={scannedData} size={220} backgroundColor="transparent" />
             </View>
           </Animated.View>
@@ -319,7 +324,7 @@ export default function HomeScreen() {
               <AnimatedImage
                 source={{ uri: previewImageUri }}
                 style={{ width: 220, height: 220, borderRadius: 12 }}
-                resizeMode="cover"
+                resizeMode="contain"
               />
             </View>
           </Animated.View>
