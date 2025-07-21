@@ -9,8 +9,10 @@ import Animated, {
   withSequence,
   withSpring,
   withTiming,
+  runOnJS,
 } from 'react-native-reanimated';
 import QRCode from 'react-native-qrcode-svg';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
 
@@ -42,22 +44,41 @@ export default function HomeScreen() {
   const qrBoxScale = useSharedValue(1);
   const qrBoxX = useSharedValue(0);
   const qrBoxY = useSharedValue(0);
+  const qrBoxRotateX = useSharedValue(0);
+  const qrBoxRotateY = useSharedValue(0);
+  const qrBoxShadowOpacity = useSharedValue(0);
 
   const qrBoxAnimatedStyle = useAnimatedStyle(() => ({
     opacity: qrBoxOpacity.value,
     transform: [
       { scale: qrBoxScale.value },
       { translateX: qrBoxX.value },
-      { translateY: qrBoxY.value }
+      { translateY: qrBoxY.value },
+      { perspective: 1000 },
+      { rotateX: `${qrBoxRotateX.value}deg` },
+      { rotateY: `${qrBoxRotateY.value}deg` },
     ],
+    shadowOpacity: qrBoxShadowOpacity.value,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowColor: '#000',
+    elevation: 8,
   }));
   const imageAnimatedStyle = useAnimatedStyle(() => ({
     opacity: imageOpacity.value,
     transform: [
       { scale: qrBoxScale.value },
       { translateX: qrBoxX.value },
-      { translateY: qrBoxY.value }
+      { translateY: qrBoxY.value },
+      { perspective: 1000 },
+      { rotateX: `${qrBoxRotateX.value}deg` },
+      { rotateY: `${qrBoxRotateY.value}deg` },
     ],
+    shadowOpacity: qrBoxShadowOpacity.value,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    shadowColor: '#000',
+    elevation: 8,
   }));
 
   const fabAnimatedStyle = useAnimatedStyle(() => ({
@@ -87,16 +108,19 @@ export default function HomeScreen() {
   }, [fabScale, guidancePillOpacity, bracketScale]);
 
   const handleBarcodeScanned = useCallback(
-    (scanningResult: { data: string; bounds?: any }) => {
-      // freeze camera preview
-      cameraRef.current?.pausePreviewAsync?.();
+    async (scanningResult: { data: string; bounds?: any; cornerPoints?: any }) => {
+      if (scanned) return;
 
       // Only accept scans whose entire bounds fall within the viewfinder rectangle
       let qrBounds: any = null;
-      if (scanningResult.bounds) {
-        const { bounds } = scanningResult;
+      let cornerPoints: any = null;
+
+      if (scanningResult.bounds || scanningResult.cornerPoints) {
+        const bounds = scanningResult.bounds;
+        cornerPoints = scanningResult.cornerPoints;
+        
         let isFullyInside = false;
-        if (bounds.origin && bounds.size) {
+        if (bounds && bounds.origin && bounds.size) {
           const { x, y } = bounds.origin;
           const { width, height } = bounds.size;
           if (
@@ -108,8 +132,8 @@ export default function HomeScreen() {
             isFullyInside = true;
             qrBounds = { x, y, width, height };
           }
-        } else if (Array.isArray(bounds.origin)) {
-          const points = bounds.origin;
+        } else if (cornerPoints && Array.isArray(cornerPoints)) {
+          const points = cornerPoints;
           isFullyInside = points.every((p: any) =>
             p.x >= viewfinderX &&
             p.x <= viewfinderX + VIEWFINDER_SIZE &&
@@ -131,50 +155,52 @@ export default function HomeScreen() {
           return; // ignore scans not fully within viewfinder
         }
       }
-      if (scanned) return;
+
       setScanned(true);
       setScannedData(scanningResult.data);
-
-      // Freeze camera immediately
-      cameraRef.current?.pausePreview?.();
 
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
 
-      snapAnimation.value = withSequence(
-        withTiming(0.8, { duration: 100 }),
-        withTiming(0, { duration: 100 })
-      );
-
-      bracketColor.value = withTiming('#4CAF50', { duration: 200 });
-
-      // Position QR box at detected QR code location if bounds available
+      // Position initial QR at detected location using generated QR code
       if (qrBounds) {
         const centerX = screenWidth / 2;
         const centerY = screenHeight / 2;
         const qrCenterX = qrBounds.x + qrBounds.width / 2;
         const qrCenterY = qrBounds.y + qrBounds.height / 2;
         
-        // Calculate initial position offset from screen center
         qrBoxX.value = qrCenterX - centerX;
         qrBoxY.value = qrCenterY - centerY;
-        qrBoxScale.value = Math.min(qrBounds.width, qrBounds.height) / 180; // Scale to match detected size
+        qrBoxScale.value = Math.min(qrBounds.width, qrBounds.height) / 220;
+        qrBoxRotateX.value = -15;
+        qrBoxRotateY.value = 10;
+        qrBoxShadowOpacity.value = 0;
       }
 
+      // Flash effect
+      snapAnimation.value = withSequence(
+        withTiming(0.8, { duration: 100 }),
+        withTiming(0, { duration: 100 })
+      );
+
+      bracketColor.value = withTiming('#4CAF50', { duration: 200 });
       qrBoxOpacity.value = withTiming(1, { duration: 300 });
 
-      // Animate to center and scale up over 1 second
-      qrBoxX.value = withTiming(0, { duration: 1000 });
-      qrBoxY.value = withTiming(0, { duration: 1000 });
-      qrBoxScale.value = withTiming(1, { duration: 1000 });
+      // 3D Animation to center with perspective and shadow
+      qrBoxX.value = withTiming(0, { duration: 400 });
+      qrBoxY.value = withTiming(0, { duration: 400 });
+      qrBoxScale.value = withTiming(1, { duration: 400 });
+      qrBoxRotateX.value = withTiming(0, { duration: 400 });
+      qrBoxRotateY.value = withTiming(0, { duration: 400 });
+      qrBoxShadowOpacity.value = withTiming(0.3, { duration: 400 });
 
-      // First show QR for 2s, then favicon transition
+      // After animation completes, show for 2s then transition to favicon
       timeoutRef.current = setTimeout(() => {
         const { data } = scanningResult;
         const isUrl = data.startsWith('http://') || data.startsWith('https://');
         if (isUrl) {
-          // Show favicon in viewfinder
+          // Show favicon
           let faviconUrl: string;
           try {
             const origin = new URL(data).origin;
@@ -183,40 +209,57 @@ export default function HomeScreen() {
             faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${data}`;
           }
           setPreviewImageUri(faviconUrl);
-          // fade in favicon, fade out QR
-          imageOpacity.value = withTiming(1, { duration: 500 });
-          qrBoxOpacity.value = withTiming(0, { duration: 500 });
-          // after another 2s, open link and then resume
+          
+          // Morph transition to favicon with scale effect
+          imageOpacity.value = withTiming(1, { duration: 800 });
+          qrBoxOpacity.value = withTiming(0, { duration: 800 });
+          
+          // Add subtle scale bounce for morph effect
+          qrBoxScale.value = withSequence(
+            withTiming(1.1, { duration: 200 }),
+            withTiming(0.95, { duration: 200 }),
+            withTiming(1, { duration: 400 })
+          );
+
+          // Open URL after showing favicon for 2s
           setTimeout(async () => {
             await Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
-            // Only reset after URL opens
-            cameraRef.current?.resumePreview?.();
+            // Reset after URL opens
+            setTimeout(() => {
+              setScanned(false);
+              setScannedData('');
+              setPreviewImageUri(null);
+              bracketColor.value = withTiming('white', { duration: 200 });
+              imageOpacity.value = 0;
+              qrBoxOpacity.value = withTiming(0, { duration: 300 });
+              qrBoxScale.value = 1;
+              qrBoxX.value = 0;
+              qrBoxY.value = 0;
+              qrBoxRotateX.value = 0;
+              qrBoxRotateY.value = 0;
+              qrBoxShadowOpacity.value = 0;
+            }, 500);
+          }, 2000);
+        } else {
+          // Non-URL: show alert and reset
+          alert(`Scanned data: ${data}`);
+          setTimeout(() => {
             setScanned(false);
             setScannedData('');
-            setPreviewImageUri(null);
             bracketColor.value = withTiming('white', { duration: 200 });
-            imageOpacity.value = 0;
+            qrBoxOpacity.value = withTiming(0, { duration: 300 });
             qrBoxScale.value = 1;
             qrBoxX.value = 0;
             qrBoxY.value = 0;
-          }, 2000);
-        } else {
-          // non-URL: resume and reset immediately
-          alert(`Scanned data: ${data}`);
-          cameraRef.current?.resumePreview?.();
-          setScanned(false);
-          setScannedData('');
-          bracketColor.value = withTiming('white', { duration: 200 });
-          qrBoxOpacity.value = withTiming(0, { duration: 300 });
-          imageOpacity.value = 0;
-          qrBoxScale.value = 1;
-          qrBoxX.value = 0;
-          qrBoxY.value = 0;
+            qrBoxRotateX.value = 0;
+            qrBoxRotateY.value = 0;
+            qrBoxShadowOpacity.value = 0;
+          }, 500);
         }
         timeoutRef.current = null;
-      }, 2000);
+      }, 2400); // 400ms animation + 2000ms display
     },
-    [scanned, snapAnimation, bracketColor, qrBoxOpacity, screenWidth, screenHeight]
+    [scanned, snapAnimation, bracketColor, qrBoxOpacity, screenWidth, screenHeight, viewfinderX, viewfinderY]
   );
 
   // Manual reset removed; scanning will reset automatically after each scan
@@ -263,10 +306,10 @@ export default function HomeScreen() {
         <Animated.View style={[styles.corner, styles.topRight, bracketAnimatedStyle]} />
         <Animated.View style={[styles.corner, styles.bottomLeft, bracketAnimatedStyle]} />
         <Animated.View style={[styles.corner, styles.bottomRight, bracketAnimatedStyle]} />
-                {scanned && scannedData ? (
+        {scanned && scannedData ? (
           <Animated.View style={[styles.qrPreviewBox, qrBoxAnimatedStyle]}>
             <View style={styles.qrCodeBackground}>
-              <QRCode value={scannedData} size={180} backgroundColor="transparent" />
+              <QRCode value={scannedData} size={220} backgroundColor="transparent" />
             </View>
           </Animated.View>
         ) : null}
@@ -275,7 +318,8 @@ export default function HomeScreen() {
             <View style={styles.qrCodeBackground}>
               <AnimatedImage
                 source={{ uri: previewImageUri }}
-                style={{ width: 180, height: 180, borderRadius: 10 }}
+                style={{ width: 220, height: 220, borderRadius: 12 }}
+                resizeMode="cover"
               />
             </View>
           </Animated.View>
@@ -393,6 +437,10 @@ const styles = StyleSheet.create({
   qrCodeBackground: {
     backgroundColor: 'white',
     padding: 10,
-    borderRadius: 10,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 12,
+    elevation: 8,
   },
 });
