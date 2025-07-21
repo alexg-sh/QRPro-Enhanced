@@ -1,4 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+
+
 import { BlurView } from 'expo-blur';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button, Linking, StyleSheet, Text, TouchableOpacity, View, Dimensions, Image } from 'react-native';
@@ -26,6 +28,7 @@ export default function HomeScreen() {
   const [torchOn, setTorchOn] = useState(false);
   const [scannedData, setScannedData] = useState<string>('');
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
+  const [frozenFrame, setFrozenFrame] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const timeoutRef = useRef<number | null>(null);
   // Compute viewfinder area for filtering
@@ -44,6 +47,7 @@ export default function HomeScreen() {
   const qrBoxOpacity = useSharedValue(0);
   const imageOpacity = useSharedValue(0);
   const snapAnimation = useSharedValue(0);
+  const frozenFrameOpacity = useSharedValue(0);
   const qrBoxScale = useSharedValue(1);
   const qrBoxX = useSharedValue(0);
   const qrBoxY = useSharedValue(0);
@@ -107,6 +111,10 @@ export default function HomeScreen() {
 
   const snapAnimatedStyle = useAnimatedStyle(() => ({
     opacity: snapAnimation.value,
+  }));
+
+  const frozenFrameAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: frozenFrameOpacity.value,
   }));
 
   useEffect(() => {
@@ -177,7 +185,21 @@ export default function HomeScreen() {
 
       if (scanned) return;
       setScanned(true); // Prevent multiple scans
-      cameraRef.current?.pausePreviewAsync?.(); // Freeze screen immediately
+      
+      // Take a picture to freeze the frame
+      try {
+        const photo = await cameraRef.current?.takePictureAsync({
+          quality: 0.8,
+          base64: false,
+          skipProcessing: true
+        });
+        if (photo) {
+          setFrozenFrame(photo.uri);
+          frozenFrameOpacity.value = withTiming(1, { duration: 100 });
+        }
+      } catch (error) {
+        console.error('Failed to capture frame:', error);
+      }
 
       // Wait 0.2s, then start animations
       setTimeout(() => {
@@ -253,12 +275,13 @@ export default function HomeScreen() {
                 // 4. Open link and reset
                 setTimeout(async () => {
                   await Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
-                  // Only resume camera AFTER URL opens
+                  // Only reset AFTER URL opens
                   setTimeout(() => {
-                    cameraRef.current?.resumePreviewAsync?.();
                     setScanned(false);
                     setScannedData('');
                     setPreviewImageUri(null);
+                    setFrozenFrame(null);
+                    frozenFrameOpacity.value = 0;
                     bracketColor.value = withTiming('white', { duration: 200 });
                     qrBoxOpacity.value = 0;
                     imageOpacity.value = 0;
@@ -277,9 +300,10 @@ export default function HomeScreen() {
                 // Non-URL: show alert and reset
                 alert(`Scanned data: ${data}`);
                 setTimeout(() => {
-                  cameraRef.current?.resumePreviewAsync?.();
                   setScanned(false);
                   setScannedData('');
+                  setFrozenFrame(null);
+                  frozenFrameOpacity.value = 0;
                   bracketColor.value = withTiming('white', { duration: 200 });
                   qrBoxOpacity.value = 0;
                   bracketX.value = 0;
@@ -331,6 +355,15 @@ export default function HomeScreen() {
         enableTorch={torchOn}
         videoQuality="2160p"
       />
+
+      {/* Frozen frame overlay to simulate paused camera */}
+      {frozenFrame && (
+        <Animated.Image
+          source={{ uri: frozenFrame }}
+          style={[StyleSheet.absoluteFillObject, frozenFrameAnimatedStyle]}
+          resizeMode="cover"
+        />
+      )}
 
       <Animated.View style={[StyleSheet.absoluteFillObject, styles.flashOverlay, snapAnimatedStyle]} />
 
