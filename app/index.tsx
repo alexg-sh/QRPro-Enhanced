@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Button, Linking, StyleSheet, Text, TouchableOpacity, View, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -14,7 +14,7 @@ import QRCode from 'react-native-qrcode-svg';
 
 import { IconSymbol } from '@/components/ui/IconSymbol';
 
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent<any>(TouchableOpacity);
 
 export default function HomeScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -23,6 +23,12 @@ export default function HomeScreen() {
   const [scannedData, setScannedData] = useState<string>('');
   const insets = useSafeAreaInsets();
   const timeoutRef = useRef<number | null>(null);
+
+  // Compute viewfinder area for filtering
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const VIEWFINDER_SIZE = 240;
+  const viewfinderX = (screenWidth - VIEWFINDER_SIZE) / 2;
+  const viewfinderY = (screenHeight - VIEWFINDER_SIZE) / 2;
 
   const fabScale = useSharedValue(0);
   const guidancePillOpacity = useSharedValue(0);
@@ -62,7 +68,35 @@ export default function HomeScreen() {
   }, [fabScale, guidancePillOpacity, bracketScale]);
 
   const handleBarcodeScanned = useCallback(
-    (scanningResult: { data: string }) => {
+    (scanningResult: { data: string; bounds?: any }) => {
+      // Only accept scans whose entire bounds fall within the viewfinder rectangle
+      if (scanningResult.bounds) {
+        const { bounds } = scanningResult;
+        let isFullyInside = false;
+        if (bounds.origin && bounds.size) {
+          const { x, y } = bounds.origin;
+          const { width, height } = bounds.size;
+          if (
+            x >= viewfinderX &&
+            y >= viewfinderY &&
+            x + width <= viewfinderX + VIEWFINDER_SIZE &&
+            y + height <= viewfinderY + VIEWFINDER_SIZE
+          ) {
+            isFullyInside = true;
+          }
+        } else if (Array.isArray(bounds.origin)) {
+          const points = bounds.origin;
+          isFullyInside = points.every((p: any) =>
+            p.x >= viewfinderX &&
+            p.x <= viewfinderX + VIEWFINDER_SIZE &&
+            p.y >= viewfinderY &&
+            p.y <= viewfinderY + VIEWFINDER_SIZE
+          );
+        }
+        if (!isFullyInside) {
+          return; // ignore scans not fully within viewfinder
+        }
+      }
       if (scanned) return;
       setScanned(true);
       setScannedData(scanningResult.data);
@@ -86,23 +120,18 @@ export default function HomeScreen() {
         } else {
           alert(`Scanned data: ${data}`);
         }
+        // Reset scanning viewfinder automatically
+        setScanned(false);
+        setScannedData('');
+        bracketColor.value = withTiming('white', { duration: 200 });
+        qrBoxOpacity.value = withTiming(0, { duration: 300 });
+        timeoutRef.current = null;
       }, 2000);
     },
     [scanned, snapAnimation, bracketColor, qrBoxOpacity]
   );
 
-  const resetScanning = useCallback(() => {
-    setScanned(false);
-    setScannedData('');
-
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-
-    bracketColor.value = withTiming('white', { duration: 200 });
-    qrBoxOpacity.value = withTiming(0, { duration: 300 });
-  }, [bracketColor, qrBoxOpacity]);
+  // Manual reset removed; scanning will reset automatically after each scan
 
   function toggleTorch() {
     setTorchOn((prev) => !prev);
@@ -161,11 +190,7 @@ export default function HomeScreen() {
         <IconSymbol name="flashlight.on.fill" size={28} color="white" />
       </AnimatedTouchableOpacity>
 
-      {scanned && (
-        <TouchableOpacity style={styles.resetButton} onPress={resetScanning}>
-          <Text style={styles.resetButtonText}>Tap to Scan Again</Text>
-        </TouchableOpacity>
-      )}
+      {/* Manual reset button removed; scan resets automatically */}
     </View>
   );
 }
@@ -270,19 +295,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     padding: 10,
     borderRadius: 10,
-  },
-  resetButton: {
-    position: 'absolute',
-    bottom: 80,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
-    zIndex: 2,
-  },
-  resetButtonText: {
-    color: '#333',
-    fontSize: 16,
-    fontWeight: '600',
   },
 });
