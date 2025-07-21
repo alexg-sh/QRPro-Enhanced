@@ -39,6 +39,8 @@ export default function HomeScreen() {
   const bracketScale = useSharedValue(0.8);
   const bracketBreathingScale = useSharedValue(1);
   const bracketColor = useSharedValue('white');
+  const bracketX = useSharedValue(0);
+  const bracketY = useSharedValue(0);
   const qrBoxOpacity = useSharedValue(0);
   const imageOpacity = useSharedValue(0);
   const snapAnimation = useSharedValue(0);
@@ -92,7 +94,11 @@ export default function HomeScreen() {
   }));
 
   const bracketContainerAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: bracketScale.value * bracketBreathingScale.value }],
+    transform: [
+      { scale: bracketScale.value * bracketBreathingScale.value },
+      { translateX: bracketX.value },
+      { translateY: bracketY.value }
+    ],
   }));
 
   const bracketAnimatedStyle = useAnimatedStyle(() => ({
@@ -169,100 +175,128 @@ export default function HomeScreen() {
         }
       }
 
-      setScanned(true);
-      setScannedData(scanningResult.data);
+      if (scanned) return;
+      setScanned(true); // Prevent multiple scans
+      cameraRef.current?.pausePreviewAsync?.(); // Freeze screen immediately
 
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
+      // Wait 0.2s, then start animations
+      setTimeout(() => {
+        setScannedData(scanningResult.data);
 
-      // Position initial QR at detected location using generated QR code
-      if (qrBounds) {
-        const centerX = screenWidth / 2;
-        const centerY = screenHeight / 2;
-        const qrCenterX = qrBounds.x + qrBounds.width / 2;
-        const qrCenterY = qrBounds.y + qrBounds.height / 2;
-        
-        qrBoxX.value = qrCenterX - centerX;
-        qrBoxY.value = qrCenterY - centerY;
-        qrBoxScale.value = Math.min(qrBounds.width, qrBounds.height) / 220;
-        qrBoxRotateX.value = -15;
-        qrBoxRotateY.value = 10;
-        qrBoxShadowOpacity.value = 0;
-      }
-
-      // Flash effect
-      snapAnimation.value = withSequence(
-        withTiming(0.8, { duration: 100 }),
-        withTiming(0, { duration: 100 })
-      );
-
-      bracketColor.value = withTiming('#4CAF50', { duration: 200 });
-      qrBoxOpacity.value = withTiming(1, { duration: 300 });
-
-      // 3D Animation to center with perspective and shadow
-      qrBoxX.value = withTiming(0, { duration: 400 });
-      qrBoxY.value = withTiming(0, { duration: 400 });
-      qrBoxScale.value = withTiming(1, { duration: 400 });
-      qrBoxRotateX.value = withTiming(0, { duration: 400 });
-      qrBoxRotateY.value = withTiming(0, { duration: 400 });
-      qrBoxShadowOpacity.value = withTiming(0.3, { duration: 400 });
-
-      // After animation completes, show for 2s then transition to favicon
-      timeoutRef.current = setTimeout(() => {
-        const { data } = scanningResult;
-        const isUrl = data.startsWith('http://') || data.startsWith('https://');
-        if (isUrl) {
-          // Show favicon
-          let faviconUrl: string;
-          try {
-            const origin = new URL(data).origin;
-            faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${origin}`;
-          } catch {
-            faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${data}`;
-          }
-          setPreviewImageUri(faviconUrl);
-          
-          // Simple fade transition from QR to favicon
-          imageOpacity.value = withTiming(1, { duration: 800 });
-          qrBoxOpacity.value = withTiming(0, { duration: 800 });
-          
-          // Open URL after showing favicon for 2s
-          setTimeout(async () => {
-            await Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
-            // Reset after URL opens
-            setTimeout(() => {
-              setScanned(false);
-              setScannedData('');
-              setPreviewImageUri(null);
-              bracketColor.value = withTiming('white', { duration: 200 });
-              qrBoxOpacity.value = withTiming(0, { duration: 300 });
-              qrBoxScale.value = 1;
-              qrBoxX.value = 0;
-              qrBoxY.value = 0;
-              qrBoxRotateX.value = 0;
-              qrBoxRotateY.value = 0;
-              qrBoxShadowOpacity.value = 0;
-            }, 500);
-          }, 2000);
-        } else {
-          // Non-URL: show alert and reset
-          alert(`Scanned data: ${data}`);
-          setTimeout(() => {
-            setScanned(false);
-            setScannedData('');
-            bracketColor.value = withTiming('white', { duration: 200 });
-            qrBoxOpacity.value = withTiming(0, { duration: 300 });
-            qrBoxScale.value = 1;
-            qrBoxX.value = 0;
-            qrBoxY.value = 0;
-            qrBoxRotateX.value = 0;
-            qrBoxRotateY.value = 0;
-            qrBoxShadowOpacity.value = 0;
-          }, 500);
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
         }
-        timeoutRef.current = null;
-      }, 2400); // 400ms animation + 2000ms display
+
+        // Position initial QR at detected location using generated QR code
+        if (qrBounds) {
+          const centerX = screenWidth / 2;
+          const centerY = screenHeight / 2;
+          const qrCenterX = qrBounds.x + qrBounds.width / 2;
+          const qrCenterY = qrBounds.y + qrBounds.height / 2;
+          
+          // 1. Highlight the detected QR code
+          const offsetX = qrCenterX - centerX;
+          const offsetY = qrCenterY - centerY;
+          const qrSize = Math.max(qrBounds.width, qrBounds.height);
+          const targetScale = (qrSize / VIEWFINDER_SIZE) * 1.1; // Slightly larger
+          
+          bracketColor.value = withTiming('#4CAF50', { duration: 300 });
+          bracketX.value = withTiming(offsetX, { duration: 300 });
+          bracketY.value = withTiming(offsetY, { duration: 300 });
+          bracketScale.value = withTiming(targetScale, { duration: 300 });
+          
+          // 2. After highlight, proceed with QR animation
+          timeoutRef.current = setTimeout(() => {
+            // Position QR box to start at the highlighted location
+            qrBoxX.value = offsetX;
+            qrBoxY.value = offsetY;
+            qrBoxScale.value = targetScale;
+            qrBoxRotateX.value = -15;
+            qrBoxRotateY.value = 10;
+            qrBoxShadowOpacity.value = 0;
+            
+            // Make QR box visible
+            qrBoxOpacity.value = withTiming(1, { duration: 100 });
+            
+            // Move viewfinder back to center as QR animates
+            bracketX.value = withTiming(0, { duration: 400 });
+            bracketY.value = withTiming(0, { duration: 400 });
+            bracketScale.value = withTiming(1, { duration: 400 });
+            
+            // Animate QR box to center with 3D effect
+            qrBoxX.value = withTiming(0, { duration: 400 });
+            qrBoxY.value = withTiming(0, { duration: 400 });
+            qrBoxScale.value = withTiming(1, { duration: 400 });
+            qrBoxRotateX.value = withTiming(0, { duration: 400 });
+            qrBoxRotateY.value = withTiming(0, { duration: 400 });
+            qrBoxShadowOpacity.value = withTiming(0.3, { duration: 400 });
+            
+            // 3. After QR animation, transition to favicon
+            setTimeout(() => {
+              const { data } = scanningResult;
+              const isUrl = data.startsWith('http://') || data.startsWith('https://');
+              if (isUrl) {
+                // Prepare and show favicon
+                let faviconUrl: string;
+                try {
+                  const origin = new URL(data).origin;
+                  faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${origin}`;
+                } catch {
+                  faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${data}`;
+                }
+                setPreviewImageUri(faviconUrl);
+                
+                // Simple fade transition
+                imageOpacity.value = withTiming(1, { duration: 800 });
+                qrBoxOpacity.value = withTiming(0, { duration: 800 });
+                
+                // 4. Open link and reset
+                setTimeout(async () => {
+                  await Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
+                  // Only resume camera AFTER URL opens
+                  setTimeout(() => {
+                    cameraRef.current?.resumePreviewAsync?.();
+                    setScanned(false);
+                    setScannedData('');
+                    setPreviewImageUri(null);
+                    bracketColor.value = withTiming('white', { duration: 200 });
+                    qrBoxOpacity.value = 0;
+                    imageOpacity.value = 0;
+                    qrBoxScale.value = 1;
+                    qrBoxX.value = 0;
+                    qrBoxY.value = 0;
+                    qrBoxRotateX.value = 0;
+                    qrBoxRotateY.value = 0;
+                    qrBoxShadowOpacity.value = 0;
+                    bracketX.value = 0;
+                    bracketY.value = 0;
+                    bracketScale.value = 1;
+                  }, 1000); // Wait 1s after URL opens before resuming
+                }, 2000);
+              } else {
+                // Non-URL: show alert and reset
+                alert(`Scanned data: ${data}`);
+                setTimeout(() => {
+                  cameraRef.current?.resumePreviewAsync?.();
+                  setScanned(false);
+                  setScannedData('');
+                  bracketColor.value = withTiming('white', { duration: 200 });
+                  qrBoxOpacity.value = 0;
+                  bracketX.value = 0;
+                  bracketY.value = 0;
+                  bracketScale.value = 1;
+                }, 1000); // Wait 1s before resuming for non-URL
+              }
+            }, 2000); // Wait 2s after QR is centered
+          }, 1500); // Wait 1.5s for highlight
+        }
+
+        // Flash effect
+        snapAnimation.value = withSequence(
+          withTiming(0.8, { duration: 100 }),
+          withTiming(0, { duration: 100 })
+        );
+      }, 200);
     },
     [scanned, snapAnimation, bracketColor, qrBoxOpacity, screenWidth, screenHeight, viewfinderX, viewfinderY]
   );
