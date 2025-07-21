@@ -1,7 +1,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Button, Linking, StyleSheet, Text, TouchableOpacity, View, Dimensions } from 'react-native';
+import { Button, Linking, StyleSheet, Text, TouchableOpacity, View, Dimensions, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated, {
   useAnimatedStyle,
@@ -15,15 +15,17 @@ import QRCode from 'react-native-qrcode-svg';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent<any>(TouchableOpacity);
+const AnimatedImage = Animated.createAnimatedComponent(Image);
 
 export default function HomeScreen() {
+  const cameraRef = useRef<any>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [scannedData, setScannedData] = useState<string>('');
+  const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const timeoutRef = useRef<number | null>(null);
-
   // Compute viewfinder area for filtering
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const VIEWFINDER_SIZE = 240;
@@ -35,7 +37,15 @@ export default function HomeScreen() {
   const bracketScale = useSharedValue(0.8);
   const bracketColor = useSharedValue('white');
   const qrBoxOpacity = useSharedValue(0);
+  const imageOpacity = useSharedValue(0);
   const snapAnimation = useSharedValue(0);
+
+  const qrBoxAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: qrBoxOpacity.value,
+  }));
+  const imageAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: imageOpacity.value,
+  }));
 
   const fabAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: fabScale.value }],
@@ -53,10 +63,6 @@ export default function HomeScreen() {
     borderColor: bracketColor.value,
   }));
 
-  const qrBoxAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: qrBoxOpacity.value,
-  }));
-
   const snapAnimatedStyle = useAnimatedStyle(() => ({
     opacity: snapAnimation.value,
   }));
@@ -69,6 +75,9 @@ export default function HomeScreen() {
 
   const handleBarcodeScanned = useCallback(
     (scanningResult: { data: string; bounds?: any }) => {
+      // freeze camera preview
+      cameraRef.current?.pausePreviewAsync?.();
+
       // Only accept scans whose entire bounds fall within the viewfinder rectangle
       if (scanningResult.bounds) {
         const { bounds } = scanningResult;
@@ -101,6 +110,9 @@ export default function HomeScreen() {
       setScanned(true);
       setScannedData(scanningResult.data);
 
+      // Freeze camera immediately
+      cameraRef.current?.pausePreview?.();
+
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
       }
@@ -113,18 +125,44 @@ export default function HomeScreen() {
       bracketColor.value = withTiming('#4CAF50', { duration: 200 });
       qrBoxOpacity.value = withTiming(1, { duration: 300 });
 
+      // First show QR for 2s, then favicon transition
       timeoutRef.current = setTimeout(() => {
         const { data } = scanningResult;
-        if (data.startsWith('http://') || data.startsWith('https://')) {
-          Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
+        const isUrl = data.startsWith('http://') || data.startsWith('https://');
+        if (isUrl) {
+          // Show favicon in viewfinder
+          let faviconUrl: string;
+          try {
+            const origin = new URL(data).origin;
+            faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${origin}`;
+          } catch {
+            faviconUrl = `https://www.google.com/s2/favicons?sz=180&domain_url=${data}`;
+          }
+          setPreviewImageUri(faviconUrl);
+          // fade in favicon, fade out QR
+          imageOpacity.value = withTiming(1, { duration: 500 });
+          qrBoxOpacity.value = withTiming(0, { duration: 500 });
+          // after another 2s, open link and resume
+          setTimeout(() => {
+            Linking.openURL(data).catch((err) => console.error("Couldn't load page", err));
+            cameraRef.current?.resumePreview?.();
+            // reset state
+            setScanned(false);
+            setScannedData('');
+            setPreviewImageUri(null);
+            bracketColor.value = withTiming('white', { duration: 200 });
+            imageOpacity.value = 0;
+          }, 2000);
         } else {
+          // non-URL: resume and reset immediately
           alert(`Scanned data: ${data}`);
+          cameraRef.current?.resumePreview?.();
+          setScanned(false);
+          setScannedData('');
+          bracketColor.value = withTiming('white', { duration: 200 });
+          qrBoxOpacity.value = withTiming(0, { duration: 300 });
+          imageOpacity.value = 0;
         }
-        // Reset scanning viewfinder automatically
-        setScanned(false);
-        setScannedData('');
-        bracketColor.value = withTiming('white', { duration: 200 });
-        qrBoxOpacity.value = withTiming(0, { duration: 300 });
         timeoutRef.current = null;
       }, 2000);
     },
@@ -155,6 +193,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <CameraView
+        ref={cameraRef}
         style={StyleSheet.absoluteFillObject}
         onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
         enableTorch={torchOn}
@@ -178,6 +217,17 @@ export default function HomeScreen() {
           <Animated.View style={[styles.qrPreviewBox, qrBoxAnimatedStyle]}>
             <View style={styles.qrCodeBackground}>
               <QRCode value={scannedData} size={180} backgroundColor="transparent" />
+            </View>
+          </Animated.View>
+        ) : null}
+        {scanned && previewImageUri ? (
+          <Animated.View style={[styles.qrPreviewBox, imageAnimatedStyle]}>
+            <View style={styles.qrCodeBackground}>
+              <AnimatedImage
+                source={{ uri: previewImageUri }}
+                style={{ width: 180, height: 180, borderRadius: 10 }}
+                resizeMode="contain"
+              />
             </View>
           </Animated.View>
         ) : null}
