@@ -1,6 +1,14 @@
-# Welcome to your Expo app 👋
+# QR Scanner App �
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A modern QR code scanner built with React Native and Expo, featuring camera integration and cross-platform support.
+
+## Features
+
+- 📷 Real-time QR code scanning using device camera
+- 🎨 Modern UI with adaptive theming (light/dark mode)
+- 📱 Cross-platform support (iOS, Android, Web)
+- ⚡ Performance monitoring and optimization
+- 🔄 File-based routing with Expo Router
 
 ## Get started
 
@@ -10,10 +18,23 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npm install
    ```
 
-2. Start the app
+2. Start the development server
 
    ```bash
-   npx expo start
+   npm start
+   ```
+
+3. Run on your preferred platform
+
+   ```bash
+   # For iOS simulator
+   npm run ios
+   
+   # For Android emulator  
+   npm run android
+   
+   # For web browser
+   npm run web
    ```
 
 In the output, you'll find options to open the app in a
@@ -23,7 +44,13 @@ In the output, you'll find options to open the app in a
 - [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
 - [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction) with Expo Router.
+
+## Camera Permissions
+
+The app requires camera permissions to scan QR codes:
+- **iOS**: Camera access is automatically requested when needed
+- **Android**: CAMERA permission is included in the app manifest
 
 ## Get a fresh project
 
