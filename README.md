@@ -1,4 +1,4 @@
-# QR Scanner App �
+# QR Scanner App
 
 A modern QR code scanner built with React Native and Expo, featuring camera integration and cross-platform support.
 
